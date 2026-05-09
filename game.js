@@ -519,8 +519,8 @@ class GameScene extends Phaser.Scene {
       stroke:'#000000',strokeThickness:4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
-    this.timeLeft = 20;
-    this.time.addEvent({ delay:1000, repeat:19, callback:() => {
+    this.timeLeft = 120;
+    this.time.addEvent({ delay:1000, repeat:119, callback:() => {
       this.timeLeft--;
       this.timerText.setText(String(this.timeLeft));
       if (this.timeLeft <= 10) this.timerText.setColor('#e74c3c');
