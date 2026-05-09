@@ -25,6 +25,58 @@ const DIFFICULTY = [
   { visibleMs: [3000, 3000, 3000], spawnInterval:  700, maxActive: 4 },
 ];
 
+// ─── SplashScene ─────────────────────────────────────────────────────────────
+class SplashScene extends Phaser.Scene {
+  constructor() { super('SplashScene'); }
+
+  preload() {
+    this.load.audio('menu_bgm', 'menu_bgm.mp3');
+  }
+
+  create() {
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1a1a2e, 1);
+    bg.fillRect(0, 0, W, H);
+
+    const title = this.add.text(W/2, H/2 - 20, 'HIT ME', {
+      fontSize: '80px',
+      fontFamily: '"Fredoka One", cursive',
+      color: '#f1c40f',
+      stroke: '#000',
+      strokeThickness: 8,
+    }).setOrigin(0.5);
+
+    const hint = this.add.text(W/2, H/2 + 70, '点击任意处开始', {
+      fontSize: '22px',
+      fontFamily: '"Fredoka One", "ZCOOL XiaoWei", cursive',
+      color: '#ffffff',
+      stroke: '#000',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    // Pulse hint text
+    this.tweens.add({
+      targets: hint, alpha: 0.3, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut',
+    });
+
+    this.input.once('pointerdown', () => this._enter());
+    this.input.keyboard.once('keydown-SPACE', () => this._enter());
+    this.input.keyboard.once('keydown-ENTER', () => this._enter());
+  }
+
+  _enter() {
+    if (this.cache.audio.exists('menu_bgm')) {
+      const bgm = this.sound.add('menu_bgm', { loop: true, volume: 0.5 });
+      bgm.play();
+      this.registry.set('menuBgm', bgm);
+    }
+    this.cameras.main.fadeOut(300, 0, 0, 0);
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      this.scene.start('MenuScene');
+    });
+  }
+}
+
 // ─── MenuScene ────────────────────────────────────────────────────────────────
 class MenuScene extends Phaser.Scene {
   constructor() { super('MenuScene'); }
@@ -34,6 +86,8 @@ class MenuScene extends Phaser.Scene {
   }
 
   create() {
+    this._menuBgm = this.registry.get('menuBgm') || null;
+
     if (this.cache.video.exists('menu_video')) {
       const video = this.add.video(W/2, H/2, 'menu_video');
       this._menuVideo = video;
@@ -42,7 +96,7 @@ class MenuScene extends Phaser.Scene {
         const scaleY = H / video.height;
         video.setScale(Math.min(scaleX, scaleY));
       });
-      video.play(true, false); // muted — no video audio needed
+      video.play(true, false);
     } else if (this.textures.exists('menu_bg')) {
       const scaleX = W / 1672;
       const scaleY = H / 941;
@@ -63,6 +117,12 @@ class MenuScene extends Phaser.Scene {
   }
 
   _startGame() {
+    if (this._menuBgm) {
+      this.tweens.add({
+        targets: this._menuBgm, volume: 0, duration: 400,
+        onComplete: () => this._menuBgm.stop(),
+      });
+    }
     if (this._menuVideo) this._menuVideo.stop();
     this.cameras.main.fadeOut(300, 0, 0, 0);
     this.cameras.main.once('camerafadeoutcomplete', () => {
@@ -194,6 +254,7 @@ class GameScene extends Phaser.Scene {
     }
 
     this.load.audio('bgm', 'bgm.mp3');
+    this.load.audio('hit', 'hit.mp3');
     this.load.on('loaderror', (file) => console.error('Load error:', file.src));
   }
 
@@ -376,6 +437,7 @@ class GameScene extends Phaser.Scene {
       if (Math.abs(mole.x - px) > 110) continue;
       if (mole.hit()) {
         this.totalHit++;
+        if (this.cache.audio.exists('hit')) this.sound.play('hit', { volume: 0.8 });
         const mult = this._comboMult();
         const pts  = MOLE_SCORE[mole.floorIndex] * mult;
         this.score += pts;
@@ -635,5 +697,5 @@ new Phaser.Game({
   type: Phaser.AUTO, width: W, height: H,
   backgroundColor: '#1a1a2e',
   physics: { default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
-  scene: [MenuScene, GameScene],
+  scene: [SplashScene, MenuScene, GameScene],
 });
