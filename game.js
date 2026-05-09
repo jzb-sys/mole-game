@@ -19,10 +19,10 @@ const MOLE_SCORE   = [10, 20, 40];
 const MOLE_PEEK_PX = 10;
 
 const DIFFICULTY = [
-  { visibleMs: [2200, 2800, 3400], spawnInterval: 1200, maxActive: 3 },
-  { visibleMs: [1800, 2300, 2900], spawnInterval: 1000, maxActive: 3 },
-  { visibleMs: [1400, 1900, 2400], spawnInterval:  850, maxActive: 4 },
-  { visibleMs: [1100, 1500, 2000], spawnInterval:  700, maxActive: 4 },
+  { visibleMs: [3000, 3000, 3000], spawnInterval: 1200, maxActive: 3 },
+  { visibleMs: [3000, 3000, 3000], spawnInterval: 1000, maxActive: 3 },
+  { visibleMs: [3000, 3000, 3000], spawnInterval:  850, maxActive: 4 },
+  { visibleMs: [3000, 3000, 3000], spawnInterval:  700, maxActive: 4 },
 ];
 
 // ─── MenuScene ────────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ class MenuScene extends Phaser.Scene {
   }
 
   create() {
-    // Try video first, fallback to image, then gradient
     if (this.cache.video.exists('menu_video')) {
       const video = this.add.video(W/2, H/2, 'menu_video');
       this._menuVideo = video;
@@ -43,7 +42,7 @@ class MenuScene extends Phaser.Scene {
         const scaleY = H / video.height;
         video.setScale(Math.min(scaleX, scaleY));
       });
-      video.play(true);
+      video.play(true, false); // muted — no video audio needed
     } else if (this.textures.exists('menu_bg')) {
       const scaleX = W / 1672;
       const scaleY = H / 941;
@@ -56,8 +55,6 @@ class MenuScene extends Phaser.Scene {
       for (let i = 0; i < 5; i++) bg.fillEllipse(i * 240 + 120, H - 40, 300, 140);
     }
 
-    // Click or key anywhere to start — use time.delayedCall to avoid
-    // the same pointerdown that started video playback triggering scene change
     this.time.delayedCall(300, () => {
       this.input.once('pointerdown', () => this._startGame());
       this.input.keyboard.once('keydown-SPACE', () => this._startGame());
@@ -83,38 +80,31 @@ class Mole {
     this.x          = x;
 
     const groundY  = FLOOR_Y[floorIndex];
-    this.holeY     = groundY;
-    this.peekY     = groundY + (52 - MOLE_PEEK_PX);
-    this.shownY    = groundY;
-
-    const hg = scene.add.graphics();
-    hg.fillStyle(0x1a0a00, 1); hg.fillEllipse(x, groundY + 6, 48, 20);
-    hg.fillStyle(0x2d1a00, 1); hg.fillEllipse(x, groundY + 3, 38, 13);
-    hg.setDepth(8);
+    this.holeY     = groundY + 20 - 5;
+    this.moleScale = 0.5;
+    const moleH    = 150 * this.moleScale;
+    this.peekY     = this.holeY + moleH - MOLE_PEEK_PX;
+    this.shownY    = this.holeY;
 
     this.flashGfx = scene.add.graphics().setDepth(8).setAlpha(0);
 
-    if (!scene.textures.exists('mole_tex')) {
-      const mg = scene.add.graphics();
-      mg.fillStyle(0x8b6914, 1); mg.fillEllipse(20, 34, 36, 36);
-      mg.fillStyle(0xa07820, 1); mg.fillCircle(20, 14, 14);
-      mg.fillStyle(0xc49a3c, 1); mg.fillEllipse(20, 20, 14, 10);
-      mg.fillStyle(0x3d1a00, 1); mg.fillCircle(20, 17, 4);
-      mg.fillStyle(0x1a0a00, 1); mg.fillCircle(13, 9, 3); mg.fillCircle(27, 9, 3);
-      mg.fillStyle(0xffffff, 1); mg.fillCircle(14, 8, 1.2); mg.fillCircle(28, 8, 1.2);
-      mg.generateTexture('mole_tex', 40, 52);
-      mg.destroy();
+    // Static hole image (hole.png) — depth 7
+    if (scene.textures.exists('hole')) {
+      scene.add.image(x, this.shownY, 'hole')
+        .setOrigin(0.5, 1).setDepth(7).setScale(this.moleScale);
     }
 
-    this.sprite = scene.add.image(x, this.peekY, 'mole_tex');
-    this.sprite.setOrigin(0.5, 1).setDepth(9);
-    this._updateCrop();
-    this._visibleTimer = null;
-  }
+    // Static mole_idle — always visible at shownY, depth 8
+    if (scene.textures.exists('mole_idle')) {
+      scene.add.image(x, this.shownY, 'mole_idle')
+        .setOrigin(0.5, 1).setDepth(8).setScale(this.moleScale);
+    }
 
-  _updateCrop() {
-    const visiblePx = Math.max(0, this.holeY - (this.sprite.y - 52));
-    this.sprite.setCrop(0, 0, 40, Math.min(52, visiblePx));
+    // Active mole sprite — hidden by default, shown when rising/hit
+    this.sprite = scene.add.image(x, this.shownY, 'mole_rise_0');
+    this.sprite.setOrigin(0.5, 1).setDepth(9).setScale(this.moleScale);
+    this.sprite.setVisible(false);
+    this._visibleTimer = null;
   }
 
   _flashHole() {
@@ -135,19 +125,17 @@ class Mole {
     this._flashHole();
     this.scene.time.delayedCall(280, () => {
       if (this.state !== 'rising') return;
-      this.scene.tweens.add({
-        targets: this.sprite, y: this.shownY, duration: 280, ease: 'Back.Out',
-        onUpdate: () => this._updateCrop(),
-        onComplete: () => {
-          this._updateCrop();
-          this.state = 'visible';
-          const diff = this.scene.currentDiff;
-          this._visibleTimer = this.scene.time.delayedCall(
-            diff.visibleMs[this.floorIndex],
-            () => { if (this.state === 'visible') this.escape(); }
-          );
-        },
+      this.sprite.setTexture('mole_rise_0').setVisible(true);
+      this.scene.time.delayedCall(150, () => {
+        if (this.state === 'rising' || this.state === 'visible')
+          this.sprite.setTexture('mole_rise_1');
       });
+      this.state = 'visible';
+      const diff = this.scene.currentDiff;
+      this._visibleTimer = this.scene.time.delayedCall(
+        diff.visibleMs[this.floorIndex],
+        () => { if (this.state === 'visible') this.escape(); }
+      );
     });
   }
 
@@ -156,33 +144,23 @@ class Mole {
     this.state = 'falling';
     if (this._visibleTimer) { this._visibleTimer.remove(); this._visibleTimer = null; }
     this.scene._onMoleEscape();
-    this.scene.tweens.add({
-      targets: this.sprite, y: this.peekY, duration: 220, ease: 'Quad.In',
-      onUpdate: () => this._updateCrop(),
-      onComplete: () => {
-        this._updateCrop();
-        this.state = 'cooldown';
-        this.scene.time.delayedCall(900, () => { this.state = 'idle'; });
-      },
-    });
+    this.sprite.setVisible(false);
+    this.state = 'cooldown';
+    this.scene.time.delayedCall(900, () => { this.state = 'idle'; });
   }
 
   hit() {
     if (this.state !== 'visible') return false;
     this.state = 'hit';
     if (this._visibleTimer) { this._visibleTimer.remove(); this._visibleTimer = null; }
-    this.scene.tweens.add({
-      targets: this.sprite, y: this.peekY, duration: 180, ease: 'Quad.In', delay: 80,
-      onUpdate: () => this._updateCrop(),
-      onComplete: () => {
-        this._updateCrop();
-        this.state = 'cooldown';
-        this.scene.time.delayedCall(700, () => { this.state = 'idle'; });
-      },
+    this.sprite.setTexture('mole_hit_0');
+    this.scene.time.delayedCall(120, () => {
+      this.sprite.setTexture('mole_hit_1');
     });
-    this.scene.tweens.add({
-      targets: this.sprite, alpha: 0.2, duration: 80, yoyo: true,
-      onComplete: () => this.sprite.setAlpha(1),
+    this.scene.time.delayedCall(280, () => {
+      this.sprite.setVisible(false);
+      this.state = 'cooldown';
+      this.scene.time.delayedCall(700, () => { this.state = 'idle'; });
     });
     return true;
   }
@@ -196,6 +174,17 @@ class GameScene extends Phaser.Scene {
     this.load.image('bg', 'bg.png');
     this.load.image('platform', 'platform.png');
     this.load.image('crate', 'crate.png');
+    this.load.image('result_panel', 'result_panel.png');
+    this.load.image('grade_s', 'grade_s.png');
+    this.load.image('grade_a', 'grade_a.png');
+    this.load.image('grade_b', 'grade_b.png');
+    this.load.image('grade_c', 'grade_c.png');
+    this.load.image('hole', 'hole.png');
+    this.load.image('mole_idle', 'mole_idle.png');
+    this.load.image('mole_rise_0', 'mole_rise_0.png');
+    this.load.image('mole_rise_1', 'mole_rise_1.png');
+    this.load.image('mole_hit_0', 'mole_hit_0.png');
+    this.load.image('mole_hit_1', 'mole_hit_1.png');
 
     // Load player animation frames
     for (let i = 0; i < 4; i++) {
@@ -204,6 +193,7 @@ class GameScene extends Phaser.Scene {
       this.load.image(`player_attack_${i}`, `player_attack_${i}.png`);
     }
 
+    this.load.audio('bgm', 'bgm.mp3');
     this.load.on('loaderror', (file) => console.error('Load error:', file.src));
   }
 
@@ -222,6 +212,12 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, W * 2, H);
     this.cameras.main.startFollow(this.player, true, 0.1, 0);
     this.cameras.main.fadeIn(300, 0, 0, 0);
+
+    // BGM
+    if (this.cache.audio.exists('bgm')) {
+      this.bgm = this.sound.add('bgm', { loop: true, volume: 0.5 });
+      this.bgm.play();
+    }
   }
 
   _buildWorld() {
@@ -285,7 +281,12 @@ class GameScene extends Phaser.Scene {
   }
   _makeObstacle(x, y, w, h, color) {
     if (this.textures.exists('crate')) {
-      this.add.image(x, y, 'crate').setOrigin(0, 0);
+      const crateScale = 1.2;
+      const cw = w * crateScale;
+      const ch = h * crateScale;
+      this.add.image(x + w/2, y + h/2, 'crate')
+        .setOrigin(0.5, 0.5)
+        .setDisplaySize(cw, ch);
       if (!this.textures.exists('_pixel')) {
         const pg = this.add.graphics();
         pg.fillStyle(0xffffff, 1); pg.fillRect(0, 0, 1, 1);
@@ -335,7 +336,7 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall(400, () =>
       this.timerText.setColor(this.timeLeft <= 10 ? '#e74c3c' : '#f1c40f'));
     const t = this.add.text(W/2, 80, '-2s', {
-      fontSize:'28px', fontFamily:'monospace', color:'#ff4444', stroke:'#000', strokeThickness:3,
+      fontSize:'28px', fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive', color:'#ff4444', stroke:'#000', strokeThickness:3,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(150);
     this.tweens.add({ targets:t, y:50, alpha:0, duration:600, onComplete:()=>t.destroy() });
   }
@@ -378,7 +379,8 @@ class GameScene extends Phaser.Scene {
         const mult = this._comboMult();
         const pts  = MOLE_SCORE[mole.floorIndex] * mult;
         this.score += pts;
-        this.scoreText.setText(`Score: ${this.score}`);
+        this.scoreText.setText('Score:');
+        this.scoreValueText.setText(String(this.score));
         this._addCombo();
         this._popScore(mole.x, mole.holeY - 60, pts, mult);
         this.cameras.main.shake(90, 0.004 + mole.floorIndex * 0.003);
@@ -389,7 +391,7 @@ class GameScene extends Phaser.Scene {
   _popScore(x, y, pts, mult) {
     const color = mult>=4?'#ff6b6b':mult>=3?'#ff9f43':mult>=2?'#f1c40f':'#ffffff';
     const t = this.add.text(x, y, mult>1?`+${pts}  x${mult}`:`+${pts}`, {
-      fontSize: mult>1?'26px':'22px', fontFamily:'monospace',
+      fontSize: mult>1?'26px':'22px', fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive',
       color, stroke:'#000', strokeThickness:3,
     }).setOrigin(0.5).setDepth(30);
     this.tweens.add({ targets:t, y:y-55, alpha:0, duration:750, ease:'Quad.Out', onComplete:()=>t.destroy() });
@@ -492,39 +494,33 @@ class GameScene extends Phaser.Scene {
 
   _buildUI() {
     this.uiContainer = this.add.container(0,0).setScrollFactor(0).setDepth(100);
-    const tb = this.add.graphics();
-    tb.fillStyle(0x000000,0.5); tb.fillRoundedRect(W/2-70,10,140,44,8);
-    this.uiContainer.add(tb);
     this.timerText = this.add.text(W/2,32,'120',{
-      fontSize:'28px',fontFamily:'monospace',color:'#f1c40f',stroke:'#000',strokeThickness:3,
+      fontSize:'20px',fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive',color:'#f1c40f',stroke:'#000',strokeThickness:3,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
-    const sb = this.add.graphics();
-    sb.fillStyle(0x000000,0.5); sb.fillRoundedRect(10,10,160,44,8);
-    this.uiContainer.add(sb);
-    this.scoreText = this.add.text(90,32,'Score: 0',{
-      fontSize:'20px',fontFamily:'monospace',color:'#ffffff',stroke:'#000',strokeThickness:2,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+    this.scoreText = this.add.text(20, 10, 'Score: 0', {
+      fontSize: '10px', fontFamily: '"Fredoka One", "ZCOOL XiaoWei", cursive', color: '#ffffff', stroke: '#000', strokeThickness: 2,
+    }).setScrollFactor(0).setDepth(101);
+
+    this.scoreValueText = this.add.text(20, 22, '0', {
+      fontSize: '40px', fontFamily: '"Fredoka One", "ZCOOL XiaoWei", cursive', color: '#ffffff', stroke: '#000', strokeThickness: 3,
+    }).setScrollFactor(0).setDepth(101);
 
     this.comboText = this.add.text(W/2,90,'',{
-      fontSize:'30px',fontFamily:'monospace',color:'#f1c40f',stroke:'#000',strokeThickness:4,
+      fontSize:'30px',fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive',color:'#f1c40f',stroke:'#000',strokeThickness:4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(102).setAlpha(0);
 
-    this.floorText = this.add.text(W-20,32,'第 1 层',{
-      fontSize:'16px',fontFamily:'monospace',color:'#7fdbff',stroke:'#000',strokeThickness:2,
-    }).setOrigin(1,0.5).setScrollFactor(0).setDepth(101);
-
     this.diffText = this.add.text(W-20,56,'Lv.1',{
-      fontSize:'14px',fontFamily:'monospace',color:'#aaaaaa',
+      fontSize:'14px',fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive',color:'#aaaaaa',
     }).setOrigin(1,0.5).setScrollFactor(0).setDepth(101);
 
     this.add.text(W/2,H-18,'← → 移动    ↑ / W / Z 跳跃（二段跳）    空格 / X 攻击',{
-      fontSize:'13px',fontFamily:'monospace',color:'#ffffff',
+      fontSize:'13px',fontFamily:'"Fredoka One", "ZCOOL XiaoWei", cursive',color:'#ffffff',
       stroke:'#000000',strokeThickness:4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
-    this.timeLeft = 120;
-    this.time.addEvent({ delay:1000, repeat:119, callback:() => {
+    this.timeLeft = 20;
+    this.time.addEvent({ delay:1000, repeat:19, callback:() => {
       this.timeLeft--;
       this.timerText.setText(String(this.timeLeft));
       if (this.timeLeft <= 10) this.timerText.setColor('#e74c3c');
@@ -548,29 +544,54 @@ class GameScene extends Phaser.Scene {
   _onTimeUp() {
     this.physics.pause();
     if (this.comboTimer) this.comboTimer.remove();
+    if (this.bgm) {
+      this.tweens.add({
+        targets: this.bgm, volume: 0, duration: 1500,
+        onComplete: () => this.bgm.stop(),
+      });
+    }
     const hitRate = this.totalPopped > 0 ? Math.round(this.totalHit/this.totalPopped*100) : 0;
     const grade = hitRate>=90?'S':hitRate>=70?'A':hitRate>=50?'B':'C';
-    const gc = {S:'#f1c40f',A:'#2ecc71',B:'#3498db',C:'#e74c3c'}[grade];
 
+    // Dim overlay
     const ov = this.add.graphics().setScrollFactor(0).setDepth(200);
-    ov.fillStyle(0x000000,0.75); ov.fillRect(0,0,W,H);
+    ov.fillStyle(0x000000, 0.6); ov.fillRect(0, 0, W, H);
 
-    this.add.text(W/2,H/2-110,'时间到！',{
-      fontSize:'48px',fontFamily:'monospace',color:'#f1c40f',stroke:'#000',strokeThickness:4,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    // Panel — scale to fit within screen with padding
+    const panelScale = Math.min((W - 80) / 832, (H - 40) / 698) * 0.9;
+    const panel = this.add.image(W/2, H/2, 'result_panel')
+      .setScale(panelScale).setScrollFactor(0).setDepth(201);
 
-    this.add.text(W/2,H/2-40,grade,{
-      fontSize:'72px',fontFamily:'monospace',color:gc,stroke:'#000',strokeThickness:5,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    const pw = 832 * panelScale;
+    const ph = 698 * panelScale;
+    const px = W/2;
+    const py = H/2;
 
-    [`得分：${this.score}`,`最高连击：${this.maxCombo}`,`命中率：${hitRate}%  (${this.totalHit}/${this.totalPopped})`]
-      .forEach((s,i) => this.add.text(W/2, H/2+55+i*34, s,{
-        fontSize:'20px',fontFamily:'monospace',color:'#ffffff',stroke:'#000',strokeThickness:2,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(201));
+    // Grade image — upper area of panel, shifted down 40px
+    const gradeKey = `grade_${grade.toLowerCase()}`;
+    this.add.image(px, py - ph * 0.18 + 40 - 30 + 20, gradeKey)
+      .setScale(panelScale * 1.2).setScrollFactor(0).setDepth(202);
 
-    this.add.text(W/2,H/2+170,'按 R 重新开始',{
-      fontSize:'16px',fontFamily:'monospace',color:'#aaaaaa',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+    // Stats — dark text, no stroke, 微软雅黑
+    const textStyle = {
+      fontSize: '18px', fontFamily: '"Fredoka One", "ZCOOL XiaoWei", cursive',
+      color: '#2c2c2c',
+    };
+    [
+      `得分：${this.score}`,
+      `最高连击：${this.maxCombo}`,
+      `命中率：${hitRate}%  (${this.totalHit}/${this.totalPopped})`,
+    ].forEach((s, i) => {
+      this.add.text(px, py + ph * 0.08 - 10 + i * 36, s, textStyle)
+        .setOrigin(0.5).setScrollFactor(0).setDepth(202);
+    });
+
+    // Restart hint
+    this.add.text(px, py + ph * 0.38 + 40 - 20 + 5, '按 R 重新开始', {
+      fontSize: '16px', fontFamily: '"Fredoka One", "ZCOOL XiaoWei", cursive',
+      color: '#aaaaaa',
+      stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(202);
 
     this.input.keyboard.once('keydown-R', () => this.scene.restart());
   }
@@ -598,7 +619,6 @@ class GameScene extends Phaser.Scene {
       }
     }
 
-    this.floorText.setText(`第 ${this._currentFloor()} 层`);
     if (p.y > H+100) { p.setPosition(100, FLOOR_Y[0]-52); p.setVelocity(0,0); }
   }
 
