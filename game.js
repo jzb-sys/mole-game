@@ -38,12 +38,12 @@ class MenuScene extends Phaser.Scene {
     if (this.cache.video.exists('menu_video')) {
       const video = this.add.video(W/2, H/2, 'menu_video');
       this._menuVideo = video;
-      video.play(true);
-      this.time.delayedCall(100, () => {
+      video.on('created', () => {
         const scaleX = W / video.width;
         const scaleY = H / video.height;
         video.setScale(Math.min(scaleX, scaleY));
       });
+      video.play(true);
     } else if (this.textures.exists('menu_bg')) {
       const scaleX = W / 1672;
       const scaleY = H / 941;
